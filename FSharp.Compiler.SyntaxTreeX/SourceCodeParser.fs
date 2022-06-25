@@ -3,18 +3,8 @@
 open System
 
 let headerFromFsyacc header =
-    let decls = 
-        Parser.getDecls("header.fsx",header)
+    let decls = Parser.getDecls("header.fsx",header)
     decls
-
-let skip_count = 2
-
-let headerFromParseTable text len =
-    let decls = 
-        Parser.getDecls("parsetable.fs",text)
-    decls 
-    |> List.skip skip_count
-    |> List.take len
 
 let semansFromFsyacc mappers =
     let decls = Parser.getDecls("semans.fsx",mappers)
@@ -27,27 +17,31 @@ let semansFromFsyacc mappers =
             | _ -> failwith $"{decl}"
         )
     bodies
-        
-let semansFromParseTable text =
-    let decls = 
-        Parser.getDecls("parsetable.fs",text)
 
-    let decl =
+let skip_count = 2
+
+let fromParseTable decls =
+    let rec loop acc inps =
+        match inps with
+        | [] -> failwith $"no found fromParseTable"
+        | (XModuleDecl.Let(_,[XBinding(_,[],[],XPat.Named("rules",false,None),_,_)]) as decl)::tail ->
+            List.rev acc, decl
+        | h::t -> loop (h::acc) t
+
+    let header,letrules = 
         decls
-        |> List.find(fun decl ->
-            match decl with
-            | XModuleDecl.Let(_,[XBinding(_,[],[],XPat.Named("rules",false,None),_,_)]) ->
-                true
-            | _ -> false
-        )
+        |> List.skip skip_count
+        |> loop []
 
     let sequential =
-        match decl with
-        | XModuleDecl.Let(_,[XBinding(_,[],[],_,_,XExpr.Typed(XExpr.ArrayOrListComputed(_,expr),_))]) ->
+        match letrules with
+        | XModuleDecl.Let(_,[
+            XBinding(_,[],[],_,_,XExpr.Typed(XExpr.ArrayOrListComputed(_,expr),_))
+            ]) ->
             expr
-        | _ -> failwith $"{decl}"
+        | _ -> failwith $"{letrules}"
 
-    let bodies = 
+    let semans = 
         Parser.getElements sequential
         |> Seq.map(fun expr ->
             match expr with
@@ -56,5 +50,4 @@ let semansFromParseTable text =
             | _ -> failwith $"never"
         )
         |> Seq.toList
-    bodies
-
+    header,semans

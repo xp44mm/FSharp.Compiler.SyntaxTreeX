@@ -17,35 +17,29 @@ type ParserTest(output: ITestOutputHelper) =
         res |> Render.stringify |> output.WriteLine
 
     [<Fact>]
-    member _.``1 - header equality``() =
-        let src =
+    member _.``valid ParseTable``() =
+        let fsyaccParseTableFile = 
             let text = File.ReadAllText(Dir.fsyacc, Encoding.UTF8)
             let rawFsyacc = FsyaccFile.parse text
-            let header = rawFsyacc.header
-            let decls:XModuleDecl list = 
-                Parser.getDecls("header.fsx",header)
+            let fsyacc = NormFsyaccFile.fromRaw rawFsyacc           
+            fsyacc.toFsyaccParseTableFile()
+
+        let parseTableDecls =
+            let text = File.ReadAllText(Dir.parseTable, Encoding.UTF8)
+            Parser.getDecls("parsetable.fs",text)
+
+        let headerFromFsyacc =
+            let decls = 
+                FSharp.Compiler.SyntaxTreeX.Parser.getDecls("header.fsx",fsyaccParseTableFile.header)
             decls
 
-        let len = src.Length
-
-        let tgt =
-            let text = File.ReadAllText(Dir.parseTable, Encoding.UTF8)
-            SourceCodeParser.headerFromParseTable text len
-
-        Should.equal src tgt
-
-    [<Fact>]
-    member _.``2 - semans equality``() =
         let semansFsyacc =
-            let text = File.ReadAllText(Dir.fsyacc, Encoding.UTF8)
-            let rawFsyacc = FsyaccFile.parse text
-            let fsyacc = NormFsyaccFile.fromRaw rawFsyacc
-            let parseTbl = fsyacc.toFsyaccParseTableFile()
-            let mappers = parseTbl.generateMappers()
-            SourceCodeParser.semansFromFsyacc mappers
+            let mappers = fsyaccParseTableFile.generateMappers()
+            FSharp.Compiler.SyntaxTreeX.SourceCodeParser.semansFromFsyacc mappers
 
-        let semansParseTable =
-            let text = File.ReadAllText(Dir.parseTable, Encoding.UTF8)
-            SourceCodeParser.semansFromParseTable text
+        let header,semans =
+            FSharp.Compiler.SyntaxTreeX.SourceCodeParser.fromParseTable parseTableDecls
 
-        Should.equal semansFsyacc semansParseTable
+        Should.equal headerFromFsyacc header
+        Should.equal semansFsyacc semans
+

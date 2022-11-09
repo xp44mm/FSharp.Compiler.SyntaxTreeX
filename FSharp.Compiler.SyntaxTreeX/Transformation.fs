@@ -6,25 +6,30 @@ open FSharp.Compiler.Xml
 open FSharp.Compiler.Text
 open FSharp.Compiler
 
-let getIdent (ident:Ident) =
+let getIdent (ident:SynIdent) =
+    match ident with SynIdent (ident,_) ->
     ident.idText
 
 let getLongIdent (longId:LongIdent) =
     longId
-    |> List.map(fun i -> i.idText )
+    |> List.map(fun i -> i.idText)
+
+let getLongIdentFromSyn (longId:SynLongIdent) =
+    match longId with
+    | SynLongIdent(i,_,_) -> getLongIdent i
 
 let getAccess (accessibility:SynAccess) =
     match accessibility with
-    | SynAccess.Public   -> XAccess.Public  
-    | SynAccess.Internal -> XAccess.Internal
-    | SynAccess.Private  -> XAccess.Private 
+    | SynAccess.Public   _ -> XAccess.Public  
+    | SynAccess.Internal _ -> XAccess.Internal
+    | SynAccess.Private  _ -> XAccess.Private 
 
 let yieldAccess (accessibility:SynAccess option) =
     seq {
         match accessibility with
-        | Some SynAccess.Public -> "public"
-        | Some SynAccess.Internal -> "internal"
-        | Some SynAccess.Private -> "private"
+        | Some (SynAccess.Public   _) -> "public"
+        | Some (SynAccess.Internal _) -> "internal"
+        | Some (SynAccess.Private  _) -> "private"
         | None -> ()
     }
 
@@ -49,7 +54,8 @@ let getModuleOrNamespace (m:SynModuleOrNamespace) =
         xmlDoc,
         attribs,
         accessibility,
-        range
+        range,
+        triva
         ) -> 
         let modifiers = [
             if isRecursive then "rec"
@@ -119,11 +125,11 @@ let getAttributeList(attributeList: SynAttributeList) =
 
 let getAttribute(attribute: SynAttribute) =
     {
-        TypeName = getLongIdent attribute.TypeName.Lid
+        TypeName = getLongIdent attribute.TypeName.LongIdent
 
         ArgExpr = getExpr attribute.ArgExpr
 
-        Target = attribute.Target |> Option.map getIdent
+        Target = attribute.Target |> Option.map (fun(i:Ident)->i.idText)
 
         AppliesToGetterAndSetter = attribute.AppliesToGetterAndSetter
 
@@ -149,7 +155,6 @@ let getExpr (expr:SynExpr) =
         commaRanges: range list,
         range: range) ->
         XExpr.Tuple (
-            //isStruct,
             List.map getExpr exprs)
 
     | SynExpr.AnonRecd (
@@ -158,9 +163,7 @@ let getExpr (expr:SynExpr) =
         recordFields: (Ident * range option * SynExpr) list ,
         range: range) ->
         XExpr.AnonRecd (
-            //isStruct,
-            //Option.map (fst>>getExpr) copyInfo,
-            List.map (fun(i,_,e)->getIdent i, getExpr e) recordFields
+            recordFields|> List.map (fun(i,_,e)->i.idText, getExpr e) 
             )
 
     | SynExpr.ArrayOrList(isArray: bool, exprs: SynExpr list, range: range)->
@@ -173,8 +176,6 @@ let getExpr (expr:SynExpr) =
         range: range
         ) ->
         XExpr.Record(
-            //Option.map (fun(t,e,_,_,_)->getType t,getExpr e) baseInfo,
-            //Option.map (fst>>getExpr) copyInfo,
             List.map getExprRecordField recordFields
         )
     | SynExpr.New (isProtected: bool, targetType: SynType, expr: SynExpr, range: range)->
@@ -195,7 +196,7 @@ let getExpr (expr:SynExpr) =
         ) ->
         XExpr.ObjExpr (
             getType objType,
-            Option.map (fun(e,i)-> getExpr e,Option.map getIdent i) argOptions,
+            argOptions|>Option.map (fun(e,i)-> getExpr e,i|>Option.map (fun i -> i.idText) ) ,
             List.map getBinding bindings,
             List.map getMemberDefn members,
             List.map getInterfaceImpl extraImpls
@@ -272,12 +273,11 @@ let getExpr (expr:SynExpr) =
             List.map getMatchClause matchClauses
             )
     | SynExpr.Match (
-        matchKeyword,
-        matchDebugPoint: DebugPointAtBinding ,
-        expr: SynExpr ,
-        withKeyword,
-        clauses: SynMatchClause list ,
-        range: range)->
+        matchDebugPoint: DebugPointAtBinding,
+        expr: SynExpr,
+        clauses: SynMatchClause list,
+        range: range,
+        trivia)->
         XExpr.Match (
             getExpr expr,
             List.map getMatchClause clauses
@@ -354,16 +354,16 @@ let getExpr (expr:SynExpr) =
         )
     | SynExpr.Ident ( ident: Ident)->
         XExpr.Ident ( ident.idText)
-    | SynExpr.LongIdent ( isOptional: bool , longDotId: LongIdentWithDots , 
+    | SynExpr.LongIdent ( isOptional: bool , longDotId: SynLongIdent , 
         altNameRefCell: SynSimplePatAlternativeIdInfo ref option , range: range)->
-        XExpr.LongIdent ( isOptional ,getLongIdent longDotId.Lid , 
+        XExpr.LongIdent ( isOptional ,getLongIdent longDotId.LongIdent , 
             Option.map getSimplePatAlternativeIdInfo altNameRefCell)
-    | SynExpr.LongIdentSet ( longDotId: LongIdentWithDots , expr: SynExpr , range: range)->
-        XExpr.LongIdentSet ( getLongIdent longDotId.Lid ,getExpr expr)
-    | SynExpr.DotGet ( expr: SynExpr , rangeOfDot: range , longDotId: LongIdentWithDots , range: range)->
-        XExpr.DotGet (getExpr expr ,getLongIdent longDotId.Lid)
-    | SynExpr.DotSet ( targetExpr: SynExpr , longDotId: LongIdentWithDots , rhsExpr: SynExpr , range: range)->
-        XExpr.DotSet (getExpr targetExpr ,getLongIdent longDotId.Lid ,getExpr rhsExpr)
+    | SynExpr.LongIdentSet ( longDotId: SynLongIdent , expr: SynExpr , range: range)->
+        XExpr.LongIdentSet ( getLongIdent longDotId.LongIdent ,getExpr expr)
+    | SynExpr.DotGet ( expr: SynExpr , rangeOfDot: range , longDotId: SynLongIdent , range: range)->
+        XExpr.DotGet (getExpr expr ,getLongIdent longDotId.LongIdent)
+    | SynExpr.DotSet ( targetExpr: SynExpr , longDotId: SynLongIdent , rhsExpr: SynExpr , range: range)->
+        XExpr.DotSet (getExpr targetExpr ,getLongIdent longDotId.LongIdent ,getExpr rhsExpr)
     | SynExpr.Set ( targetExpr: SynExpr , rhsExpr: SynExpr , range: range)->
         XExpr.Set (getExpr targetExpr ,getExpr rhsExpr)
     | SynExpr.DotIndexedGet ( objectExpr: SynExpr , indexArgs: SynExpr , dotRange: range , range: range)->
@@ -380,10 +380,10 @@ let getExpr (expr:SynExpr) =
             getExpr indexArgs ,
             getExpr valueExpr
             )
-    | SynExpr.NamedIndexedPropertySet ( longDotId: LongIdentWithDots , expr1: SynExpr , expr2: SynExpr , range: range)->
-        XExpr.NamedIndexedPropertySet (getLongIdent longDotId.Lid ,getExpr expr1 ,getExpr expr2)
-    | SynExpr.DotNamedIndexedPropertySet ( targetExpr: SynExpr , longDotId: LongIdentWithDots , argExpr: SynExpr , rhsExpr: SynExpr , range: range)->
-        XExpr.DotNamedIndexedPropertySet (getExpr targetExpr ,getLongIdent longDotId.Lid ,getExpr argExpr , getExpr rhsExpr)
+    | SynExpr.NamedIndexedPropertySet ( longDotId: SynLongIdent, expr1: SynExpr , expr2: SynExpr , range: range)->
+        XExpr.NamedIndexedPropertySet (getLongIdent longDotId.LongIdent ,getExpr expr1 ,getExpr expr2)
+    | SynExpr.DotNamedIndexedPropertySet ( targetExpr: SynExpr , longDotId: SynLongIdent, argExpr: SynExpr , rhsExpr: SynExpr , range: range)->
+        XExpr.DotNamedIndexedPropertySet (getExpr targetExpr ,getLongIdent longDotId.LongIdent ,getExpr argExpr , getExpr rhsExpr)
     | SynExpr.TypeTest ( expr: SynExpr , targetType: SynType , range: range)->
         XExpr.TypeTest (getExpr expr ,getType targetType)
     | SynExpr.Upcast ( expr: SynExpr , targetType: SynType , range: range)->
@@ -398,8 +398,8 @@ let getExpr (expr:SynExpr) =
         XExpr.Null
     | SynExpr.AddressOf ( isByref: bool , expr: SynExpr , opRange: range , range: range)->
         XExpr.AddressOf ( isByref , getExpr expr)
-    | SynExpr.TraitCall ( supportTys: SynTypar list , traitSig: SynMemberSig , argExpr: SynExpr , range: range)->
-        XExpr.TraitCall (List.map getTypar supportTys ,getMemberSig traitSig,getExpr argExpr)
+    | SynExpr.TraitCall ( supportTys: SynType list , traitSig: SynMemberSig , argExpr: SynExpr , range: range)->
+        XExpr.TraitCall (List.map getType supportTys ,getMemberSig traitSig,getExpr argExpr)
     | SynExpr.JoinIn ( lhsExpr: SynExpr , lhsRange: range , rhsExpr: SynExpr , range: range)->
         XExpr.JoinIn (getExpr lhsExpr,getExpr rhsExpr)
     | SynExpr.ImplicitZero ( range: range)->
@@ -430,12 +430,13 @@ let getExpr (expr:SynExpr) =
             getExpr body
             )
     | SynExpr.MatchBang (
-        matchKeyword,
+        //matchKeyword,
         matchDebugPoint: DebugPointAtBinding ,
         expr: SynExpr ,
-        withKeyword,
-        clauses: SynMatchClause list ,
-        range: range 
+        //withKeyword,
+        clauses: SynMatchClause list,
+        range: range,
+        trivia
         )->
         XExpr.MatchBang (
             getExpr expr ,
@@ -474,14 +475,20 @@ let getExpr (expr:SynExpr) =
         XExpr.InterpolatedString (List.map getInterpolatedStringPart contents, getStringKind synStringKind)
     | SynExpr.DebugPoint ( debugPoint: DebugPointAtLeafExpr , isControlFlow: bool , innerExpr: SynExpr)->
         XExpr.DebugPoint
-    //| SynExpr.Dynamic ( funcExpr: SynExpr , qmark: range , argExpr: SynExpr , range: range) ->
-    //    XExpr.Dynamic (getExpr funcExpr ,getExpr argExpr)
+    | SynExpr.Dynamic ( funcExpr: SynExpr , qmark: range , argExpr: SynExpr , range: range) ->
+        XExpr.Dynamic (getExpr funcExpr ,getExpr argExpr)
+    | SynExpr.Typar _ -> failwith ""
+let getTupleTypeSegment (x:SynTupleTypeSegment) =
+    match x with
+    | SynTupleTypeSegment.Type tname -> XTupleTypeSegment.Type (getType tname)
+    | SynTupleTypeSegment.Star _ -> XTupleTypeSegment.Star
+    | SynTupleTypeSegment.Slash _ -> XTupleTypeSegment.Slash
 
 let getType(tp:SynType) =
     match tp with
 
     | SynType.LongIdent ( longDotId) ->
-        XType.LongIdent (getLongIdent longDotId.Lid)
+        XType.LongIdent (getLongIdent longDotId.LongIdent)
 
     | SynType.App (
         typeName: SynType ,
@@ -508,17 +515,20 @@ let getType(tp:SynType) =
         ) ->
         XType.LongIdentApp (
             getType typeName ,
-            getLongIdent longDotId.Lid ,
+            getLongIdent longDotId.LongIdent,
             List.map getType typeArgs
         )
 
-    | SynType.Tuple ( isStruct: bool , elementTypes: (bool * SynType) list , range: range) ->
-        XType.Tuple ( isStruct ,List.map (fun(b,t)->b,getType t) elementTypes)
+    | SynType.Tuple (isStruct: bool, path:SynTupleTypeSegment list, range: range) ->
+        XType.Tuple (isStruct , List.map getTupleTypeSegment path)
     | SynType.AnonRecd ( isStruct: bool , fields: (Ident * SynType) list , range: range)->
-        XType.AnonRecd ( isStruct ,List.map (fun(b,t)->getIdent b,getType t) fields)
+        XType.AnonRecd ( 
+            isStruct ,
+            fields |> List.map (fun(b,t)-> b.idText,getType t)
+            )
     | SynType.Array ( rank: int , elementType: SynType , range: range) ->
         XType.Array ( rank , getType elementType)
-    | SynType.Fun ( argType: SynType , returnType: SynType , range: range)->
+    | SynType.Fun ( argType: SynType , returnType: SynType , range: range,trivia)->
         XType.Fun (getType argType ,getType returnType)
     | SynType.Var ( typar: SynTypar , range: range)->
         XType.Var (getTypar typar)
@@ -541,6 +551,7 @@ let getType(tp:SynType) =
         XType.StaticConstantNamed (getType ident ,getType value)
     | SynType.Paren ( innerType: SynType , range: range) ->
         XType.Paren (getType innerType)
+    | SynType.SignatureParameter _ -> failwith ""
 
 let getConst (c: SynConst) =
     match c with
@@ -654,7 +665,7 @@ let getPat(src: SynPat) =
         XPat.Const(getConst constant)
     | SynPat.Wild( range: range)->
         XPat.Wild
-    | SynPat.Named( ident: Ident , isThisVal: bool , accessibility: SynAccess option , range: range) ->
+    | SynPat.Named( ident: SynIdent , isThisVal: bool , accessibility: SynAccess option , range: range) ->
         XPat.Named(getIdent ident, isThisVal,Option.map getAccess accessibility)
     | SynPat.Typed( pat: SynPat , targetType: SynType , range: range) ->
         XPat.Typed(getPat pat ,getType targetType)
@@ -668,16 +679,15 @@ let getPat(src: SynPat) =
         XPat.As(getPat lhsPat, getPat rhsPat)
     | SynPat.LongIdent(
         longDotId: _ ,
-        propertyKeyword: PropertyKeyword option ,
         extraId: Ident option ,
         typarDecls: SynValTyparDecls option ,
         argPats: SynArgPats ,
         accessibility: SynAccess option ,
         range: range) ->
         XPat.LongIdent(
-            getLongIdent longDotId.Lid ,
-            Option.map getPropertyKeyword propertyKeyword,
-            Option.map getIdent extraId,
+            getLongIdent longDotId.LongIdent ,
+            //Option.map getPropertyKeyword propertyKeyword,
+            Option.map (fun(i:Ident)->i.idText) extraId,
             Option.map getValTyparDecls typarDecls,
             getArgPats argPats ,
             Option.map getAccess accessibility
@@ -715,7 +725,7 @@ let getPat(src: SynPat) =
         XPat.InstanceMember(
             thisId.idText ,
             memberId.idText ,
-            Option.map getIdent toolingId ,
+            Option.map (fun(i:Ident)->i.idText) toolingId ,
             Option.map getAccess accessibility
         )
 
@@ -736,13 +746,13 @@ let getInterpolatedStringPart(src: SynInterpolatedStringPart) =
     | SynInterpolatedStringPart.String ( value: string,range: range ) ->  
         XInterpolatedStringPart.String value
     | SynInterpolatedStringPart.FillExpr ( fillExpr: SynExpr , qualifiers: Ident option) ->
-        XInterpolatedStringPart.FillExpr(getExpr fillExpr, Option.map getIdent qualifiers)
+        XInterpolatedStringPart.FillExpr(getExpr fillExpr, Option.map (fun(i:Ident)->i.idText) qualifiers)
 
 let getOpenDeclTarget(src: SynOpenDeclTarget ) =
     match src with
 
-    | SynOpenDeclTarget.ModuleOrNamespace ( longId: LongIdent , range: range) ->
-        XOpenDeclTarget.ModuleOrNamespace (getLongIdent longId)
+    | SynOpenDeclTarget.ModuleOrNamespace ( longId: SynLongIdent , range: range) ->
+        XOpenDeclTarget.ModuleOrNamespace (getLongIdentFromSyn longId)
 
     | SynOpenDeclTarget.Type ( typeName: SynType , range: range) ->
         XOpenDeclTarget.Type (getType typeName)
@@ -803,18 +813,6 @@ let getExceptionDefn (src:SynExceptionDefn) =
             getMemberDefns members
         )
 
-//let getParsedHashDirective(src: FSharp.Compiler.Syntax.ParsedHashDirective ) =
-//    match src with 
-//    ParsedHashDirective (
-//        ident: string ,
-//        args: ParsedHashDirectiveArgument list ,
-//        range: FSharp.Compiler.Text.range
-//        ) ->
-//        SyntaxTreeX.ParsedHashDirective(
-//            ident ,
-//            List.map getParsedHashDirectiveArgument args
-//        )
-
 let getExprRecordField (src:SynExprRecordField) =
     match src with
     SynExprRecordField (
@@ -846,7 +844,7 @@ let getMemberDefn (src:SynMemberDefn) =
             Option.map getAccess accessibility , 
             getAttributes attributes , 
             getSimplePats ctorArgs , 
-            Option.map getIdent selfIdentifier
+            Option.map (fun(i:Ident)->i.idText) selfIdentifier
         )
     | SynMemberDefn.ImplicitInherit ( 
         inheritType: SynType ,
@@ -857,7 +855,7 @@ let getMemberDefn (src:SynMemberDefn) =
         XMemberDefn.ImplicitInherit ( 
             getType inheritType ,
             getExpr inheritArgs ,
-            Option.map getIdent inheritAlias
+            Option.map (fun(i:Ident)->i.idText) inheritAlias
         )
     | SynMemberDefn.LetBindings ( 
         bindings: SynBinding list ,
@@ -897,7 +895,7 @@ let getMemberDefn (src:SynMemberDefn) =
         ) ->
         XMemberDefn.Inherit ( 
             getType baseType ,
-            Option.map getIdent asIdent
+            Option.map (fun(i:Ident)->i.idText) asIdent
         )
     | SynMemberDefn.ValField ( 
         fieldInfo: SynField ,
@@ -915,30 +913,31 @@ let getMemberDefn (src:SynMemberDefn) =
             Option.map getAccess accessibility
         )
     | SynMemberDefn.AutoProperty ( 
-        attributes: SynAttributes ,
-        isStatic: bool ,
-        ident: Ident ,
-        typeOpt: SynType option ,
-        propKind: SynMemberKind ,
-        memberFlags: SynMemberKind -> SynMemberFlags ,
-        xmlDoc: FSharp.Compiler.Xml.PreXmlDoc ,
-        accessibility: SynAccess option ,
-        equalsRange: FSharp.Compiler.Text.range ,
-        synExpr: SynExpr ,
-        withKeyword: FSharp.Compiler.Text.range option ,
-        getSetRange: FSharp.Compiler.Text.range option ,
-        range: FSharp.Compiler.Text.range
-        ) ->
+        attributes: SynAttributes,
+        isStatic: bool,
+        ident: Ident,
+        typeOpt: SynType option,
+        propKind: SynMemberKind,
+        memberFlags: SynMemberFlags,
+        memberFlagsForSet: SynMemberFlags,
+        xmlDoc: PreXmlDoc,
+        accessibility: SynAccess option,
+        _,
+        synExpr: SynExpr,
+        _,
+        _,
+        _
+        )  ->
         XMemberDefn.AutoProperty ( 
             getAttributes attributes ,
             isStatic ,
-            getIdent ident ,
+            ident.idText ,
             Option.map getType typeOpt ,
             getMemberKind propKind ,
-            //memberFlags: SynMemberKind -> SynMemberFlags ,
             Option.map getAccess accessibility ,
             getExpr synExpr
         )
+    | SynMemberDefn.GetSetMember _ -> failwith "unimpl"
 
 let getInterfaceImpl (src:SynInterfaceImpl) =
     match src with
@@ -1145,6 +1144,8 @@ let getTypeConstraint(src:SynTypeConstraint) =
         range: FSharp.Compiler.Text.range
         ) ->
         XTypeConstraint.WhereTyparIsDelegate (getTypar typar ,List.map getType typeArgs)
+    | SynTypeConstraint.WhereSelfConstrained (_, _) -> failwith ""
+
 let getRationalConst(src:SynRationalConst)=
     match src with
     | SynRationalConst.Integer ( value: int32) ->
@@ -1176,7 +1177,7 @@ let getMeasure(src:SynMeasure)=
         XMeasure.Anon 
     | SynMeasure.Var ( typar: SynTypar , range: FSharp.Compiler.Text.range)->
         XMeasure.Var (getTypar typar )
-        
+    | SynMeasure.Paren(_,_) -> failwith "unimpl"
 let getValData (src:SynValData)=
     match src with
     | SynValData (
@@ -1187,13 +1188,13 @@ let getValData (src:SynValData)=
         XValData (
             Option.map getMemberFlags memberFlags ,
             getValInfo valInfo , 
-            Option.map getIdent thisIdOpt
+            thisIdOpt |> Option.map (fun i -> i.idText)
         )
 
-let getPropertyKeyword(src:FSharp.Compiler.Syntax.PropertyKeyword)=
-    match src with
-    | PropertyKeyword.With _ -> SyntaxTreeX.PropertyKeyword.With
-    | PropertyKeyword.And  _ -> SyntaxTreeX.PropertyKeyword.And
+//let getPropertyKeyword(src:FSharp.Compiler.Syntax.PropertyKeyword)=
+//    match src with
+//    | PropertyKeyword.With _ -> SyntaxTreeX.PropertyKeyword.With
+//    | PropertyKeyword.And  _ -> SyntaxTreeX.PropertyKeyword.And
 
 let getValTyparDecls(src:SynValTyparDecls)=
     match src with
@@ -1248,14 +1249,14 @@ let getExceptionDefnRepr(src:SynExceptionDefnRepr)=
 
 let getRecordFieldName(src:RecordFieldName) =
     match src with
-    | (lid,b) -> getLongIdent lid.Lid, b
+    | (lid,b) -> getLongIdent lid.LongIdent, b
 
 
 let getValSig(src:SynValSig) =
     match src with
     | SynValSig (
         attributes: SynAttributes ,
-        ident: Ident ,
+        ident: SynIdent ,
         explicitValDecls: SynValTyparDecls ,
         synType: SynType ,
         arity: SynValInfo ,
@@ -1264,9 +1265,9 @@ let getValSig(src:SynValSig) =
         xmlDoc: FSharp.Compiler.Xml.PreXmlDoc ,
         accessibility: SynAccess option ,
         synExpr: SynExpr option ,
-        withKeyword: FSharp.Compiler.Text.range option ,
-        range: FSharp.Compiler.Text.range
-        ) ->
+        //withKeyword: FSharp.Compiler.Text.range option ,
+        range: FSharp.Compiler.Text.range,
+        trivia) ->
         XValSig (
             getAttributes attributes ,
             getIdent ident ,
@@ -1303,7 +1304,7 @@ let getField(src:SynField) =
         XField (
             getAttributes attributes  ,
             isStatic ,
-            Option.map getIdent idOpt ,
+            idOpt|> Option.map (fun i -> i.idText),
             getType fieldType ,
             isMutable ,
             Option.map getAccess accessibility
@@ -1318,7 +1319,7 @@ let getSimplePat(src:SynSimplePat) =
         range: FSharp.Compiler.Text.range
         ) ->
         XSimplePat.Id ( 
-            getIdent ident ,
+            ident.idText ,
             Option.map getSimplePatAlternativeIdInfo altNameRefCell ,
             isCompilerGenerated , isThisVal , isOptional 
         )
@@ -1331,11 +1332,10 @@ let getTypeDefnSig(src:SynTypeDefnSig) =
     match src with
     | SynTypeDefnSig ( 
         typeInfo: SynComponentInfo ,
-        equalsRange: FSharp.Compiler.Text.range option ,
         typeRepr: SynTypeDefnSigRepr ,
-        withKeyword: FSharp.Compiler.Text.range option ,
         members: SynMemberSig list ,
-        range: FSharp.Compiler.Text.range
+        range: FSharp.Compiler.Text.range,
+        _
         ) ->
         XTypeDefnSig ( 
             getComponentInfo typeInfo ,
@@ -1382,7 +1382,7 @@ let getTypeDefnSimpleRepr(src:SynTypeDefnSimpleRepr) =
     | SynTypeDefnSimpleRepr.General ( kind: SynTypeDefnKind , inherits: (SynType * FSharp.Compiler.Text.range * Ident option) list , slotsigs: (SynValSig * SynMemberFlags) list , fields: SynField list , isConcrete: bool , isIncrClass: bool , implicitCtorSynPats: SynSimplePats option , range: FSharp.Compiler.Text.range) ->
         XTypeDefnSimpleRepr.General (
             getTypeDefnKind kind, 
-            inherits |> List.map(fun(ty,_,i)-> getType ty,Option.map getIdent i) , 
+            inherits |> List.map(fun(ty,_,i)-> getType ty,Option.map (fun(i:Ident)->i.idText) i) , 
             slotsigs |> List.map(fun(vs,mf)-> getValSig vs, getMemberFlags mf) , 
             List.map getField fields , 
             isConcrete , isIncrClass , 
@@ -1401,7 +1401,7 @@ let getUnionCase(src:SynUnionCase) =
     match src with
     | SynUnionCase(
         attributes: SynAttributes ,
-        ident: Ident ,
+        ident: SynIdent ,
         caseType: SynUnionCaseKind ,
         xmlDoc: FSharp.Compiler.Xml.PreXmlDoc ,
         accessibility: SynAccess option ,
@@ -1440,7 +1440,7 @@ let getEnumCase(src:SynEnumCase) =
     match src with
     | SynEnumCase(
         attributes: SynAttributes ,
-        ident: Ident ,
+        ident: SynIdent ,
         value: SynConst ,
         valueRange: FSharp.Compiler.Text.range ,
         xmlDoc: FSharp.Compiler.Xml.PreXmlDoc ,
@@ -1455,7 +1455,7 @@ let getEnumCase(src:SynEnumCase) =
 let getArgInfo(src:SynArgInfo) =
     match src with
     | SynArgInfo ( attributes: SynAttributes , optional: bool , ident: Ident option) ->
-        XArgInfo ( attributes|>getAttributes , optional , ident|> Option.map getIdent) 
+        XArgInfo ( attributes|>getAttributes , optional , ident|> Option.map (fun i -> i.idText)) 
 
 let getUnionCaseKind(src:SynUnionCaseKind) =
     match src with

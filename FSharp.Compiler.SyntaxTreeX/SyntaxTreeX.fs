@@ -108,6 +108,12 @@ type XTyparDecls =
     | SinglePrefix of decl: XTyparDecl
 
 [<RequireQualifiedAccess>]
+type XTupleTypeSegment =
+    | Type of typeName: XType
+    | Star // of range: range
+    | Slash // of range: range
+
+[<RequireQualifiedAccess>]
 type XType =
     | LongIdent of longDotId: LongIdent
     | App of
@@ -118,7 +124,7 @@ type XType =
         typeName: XType *
         longDotId: LongIdent *
         typeArgs: XType list
-    | Tuple of isStruct: bool * elementTypes: (bool * XType) list
+    | Tuple of isStruct: bool * path: XTupleTypeSegment list
     | AnonRecd of isStruct: bool * fields: (Ident * XType) list
     | Array of rank: int * elementType: XType
     | Fun of argType: XType * returnType: XType
@@ -140,19 +146,13 @@ type XExpr =
     | Const of constant: XConst
     | Typed of expr: XExpr * targetType: XType
     | Tuple of
-        //isStruct: bool *
         exprs: XExpr list
     | AnonRecd of
-        //isStruct: bool *
-        //copyInfo: XExpr option *
         recordFields: (Ident * XExpr) list
     | ArrayOrList of isArray: bool * exprs: XExpr list
     | Record of
-        //baseInfo: (XType * XExpr) option *
-        //copyInfo: XExpr option *
         recordFields: XExprRecordField list
     | New of 
-        //isProtected: bool * 
         targetType: XType * 
         expr: XExpr
     | ObjExpr of
@@ -241,7 +241,7 @@ type XExpr =
     | InferredDowncast of expr: XExpr
     | Null
     | AddressOf of isByref: bool * expr: XExpr
-    | TraitCall of supportTys: XTypar list * traitSig: XMemberSig * argExpr: XExpr
+    | TraitCall of supportTys: XType list * traitSig: XMemberSig * argExpr: XExpr
     | JoinIn of lhsExpr: XExpr  * rhsExpr: XExpr
     | ImplicitZero
     | SequentialOrImplicitYield of  expr1: XExpr * expr2: XExpr * ifNotStmt: XExpr
@@ -268,7 +268,7 @@ type XExpr =
     | Fixed of expr: XExpr
     | InterpolatedString of contents: XInterpolatedStringPart list * XStringKind: XStringKind
     | DebugPoint
-    //| Dynamic of funcExpr: XExpr  * argExpr: XExpr
+    | Dynamic of funcExpr: XExpr  * argExpr: XExpr
 
 type XExprAndBang =
     | XExprAndBang of
@@ -330,7 +330,6 @@ type XPat =
     | As of lhsPat: XPat * rhsPat: XPat
     | LongIdent of
         longDotId: LongIdent *
-        propertyKeyword: PropertyKeyword option *
         extraId: Ident option *
         typarDecls: XValTyparDecls option *
         argPats: XArgPats *

@@ -2,11 +2,11 @@
 
 open System
 
-let headerFromFsyacc header =
+let headerFromHeader header =
     let decls = Parser.getDecls("header.fsx",header)
     decls
 
-let semansFromFsyacc mappers =
+let semansFromMappers mappers =
     let decls = Parser.getDecls("semans.fsx",mappers)
     let bodies =
         decls
@@ -18,9 +18,9 @@ let semansFromFsyacc mappers =
         )
     bodies
 
-let skip_count = 2
+//let skip_count = 2
 
-let fromParseTable decls =
+let fromFSharp skip_count decls =
     let rec loop acc inps =
         match inps with
         | [] -> failwith $"no found fromParseTable"
@@ -45,9 +45,18 @@ let fromParseTable decls =
         Parser.getElements sequential
         |> Seq.map(fun expr ->
             match expr with
-            | XExpr.Tuple [_;XExpr.Lambda(_,body)] ->
-                body
+            | XExpr.Tuple ls ->
+                let lambda = List.last ls
+                match lambda with
+                | XExpr.Lambda(_,body) -> body
+                | _ -> failwith $"no lambda"
             | _ -> failwith $"never"
         )
         |> Seq.toList
     header,semans
+
+let getHeaderSemansFromFSharp skip_count text =
+    Parser.getDecls("parsetableOrDFA.fs",text)
+    |> fromFSharp skip_count
+
+
